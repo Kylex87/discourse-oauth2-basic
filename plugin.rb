@@ -134,8 +134,12 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
         grouplist.delete(gname) # remove it from the list
       #delete the user from the list since sso says he isn't in there anymore!
       else
-	log("Removing user #{user.id} from group #{c.name}.")
-        c.group_users.where(user_id: user.id).destroy_all
+	if c.automatic
+	  log("Not removing user from automatic group #{c.name}.")
+	elsif
+	  log("Removing user #{user.id} from group #{c.name}.")
+          c.group_users.where(user_id: user.id).destroy_all
+	end
       end
     end
     # add users to group
