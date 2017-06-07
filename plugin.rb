@@ -92,7 +92,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
   end
 
   def update_user_groups(user, groups)
-    Rails.logger.debug("Called update users with user: "+user.to_s+" and groups "+groups.join(","))
+    log("Called update users with user: #{user} and groups #{groups.join(",")}.")
     groupMatchStr = SiteSetting.oauth2_group_matching
     groupArr = groupMatchStr.split(",")
     nameAttr = SiteSetting.oauth2_json_groups_nameattr
@@ -113,7 +113,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
       end
     end
     
-    Rails.logger.debug("Grouplist:"+grouplist.join(","))
+    log("Grouplist: #{grouplist.join(",")}")
     # Get the groups this user is authenticated with from sso
     Group.joins(:users).where(users: { id: user.id } ).each do |c|
       gname = c.name
@@ -122,6 +122,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
         grouplist.delete(gname) # remove it from the list
       #delete the user from the list since sso says he isn't in there anymore!
       else
+	log("Removing user #{user.id} from group #{c.name}.")
         c.group_users.where(user_id: user.id).destroy_all
       end
     end
@@ -129,6 +130,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
     grouplist.each do |c|
        grp = Group.where(name: c).first
        if not grp.nil?
+	 log("Adding user #{user.id} to group #{grp.id}.")
          grp.group_users.create(user_id: user.id, group_id: grp.id)
        end
     end
@@ -165,7 +167,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
   end
 
   def after_create_account(user, auth)
-    Rails.logger.debug("Called after create account for user "+user.to_s+" and auth: "+auth.to_s)
+    log("Called after create account for user #{user} and auth: #{auth}.")
     ::PluginStore.set("oauth2_basic", "oauth2_basic_user_#{auth[:extra_data][:oauth2_basic_user_id]}", {user_id: user.id })
     groups = auth[:extra_data][:groups]
     update_user_groups(user, groups)
