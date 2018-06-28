@@ -42,6 +42,9 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
                         if SiteSetting.oauth2_send_auth_header?
                           opts[:token_params] = { headers: { 'Authorization' => basic_auth_header } }
                         end
+                        unless SiteSetting.oauth2_scope.blank?
+                          opts[:scope] = SiteSetting.oauth2_scope
+                        end
                       }
   end
 
@@ -52,8 +55,12 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
   def walk_path(fragment, segments)
     first_seg = segments[0]
     return if first_seg.blank? || fragment.blank?
-    return nil unless fragment.is_a?(Hash)
-    deref = fragment[first_seg] || fragment[first_seg.to_sym]
+    return nil unless fragment.is_a?(Hash) || fragment.is_a?(Array)
+    if fragment.is_a?(Hash)
+      deref = fragment[first_seg] || fragment[first_seg.to_sym]
+    else
+      deref = fragment[0] # Take just the first array for now, maybe later we can teach it to walk the array if we need to
+    end
 
     return (deref.blank? || segments.size == 1) ? deref : walk_path(deref, segments[1..-1])
   end
@@ -98,6 +105,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
       json_walk(result, user_json, :name)
       json_walk(result, user_json, :email)
       json_walk(result, user_json, :groups)
+      json_walk(result, user_json, :avatar)
     end
 
     result
@@ -164,6 +172,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
     result.username = user_details[:username]
     result.email = user_details[:email]
     result.email_valid = result.email.present? && SiteSetting.oauth2_email_verified?
+    avatar_url = user_details[:avatar]
 
     current_info = ::PluginStore.get("oauth2_basic", "oauth2_basic_user_#{user_details[:user_id]}")
     if current_info
@@ -174,6 +183,12 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
         ::PluginStore.set("oauth2_basic", "oauth2_basic_user_#{user_details[:user_id]}", user_id: result.user.id)
       end
     end
+
+    Jobs.enqueue(:download_avatar_from_url,
+      url: avatar_url,
+      user_id: result.user.id,
+      override_gravatar: SiteSetting.sso_overrides_avatar
+    ) if result.user && avatar_url.present?
     
     result.extra_data = { oauth2_basic_user_id: user_details[:user_id], groups: user_details[:groups] }
     if not result.user.nil? and not user_details[:groups].nil?

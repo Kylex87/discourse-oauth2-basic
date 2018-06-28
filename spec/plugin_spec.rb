@@ -1,4 +1,5 @@
 require 'rails_helper'
+require 'json'
 
 # This is ugly... but it works!
 # Need to load plugin.rb to avoid:
@@ -26,18 +27,86 @@ require_relative '../plugin.rb'
 
 describe OAuth2BasicAuthenticator do
   context 'after_authenticate' do
-    it 'finds user by email' do
-      authenticator = OAuth2BasicAuthenticator.new('oauth2_basic')
-      user = Fabricate(:user)
-      authenticator.expects(:fetch_user_details).returns(email: user.email)
+    let(:user) { Fabricate(:user) }
+    let(:authenticator) { OAuth2BasicAuthenticator.new('oauth2_basic') }
+
+    let(:auth) do
+      { 'credentials' => { 'token': 'token' },
+        'info' => { id: 'id' },
+        'extra' => {} }
+    end
+
+    before(:each) do
       SiteSetting.oauth2_email_verified = true
-      auth = { 'credentials' => { 'token': 'token' },
-               'info' => { id: 'id' },
-               'extra' => {} }
+    end
 
+    it 'finds user by email' do
+      authenticator.expects(:fetch_user_details).returns(email: user.email)
       result = authenticator.after_authenticate(auth)
-
       expect(result.user).to eq(user)
     end
+
+    context 'avatar downloading' do
+      before { SiteSetting.queue_jobs = true }
+
+      let(:job_klass) { Jobs::DownloadAvatarFromUrl }
+
+      before do
+        png = Base64.decode64("R0lGODlhAQABALMAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwICAgP8AAAD/AP//AAAA//8A/wD//wBiZCH5BAEAAA8ALAAAAAABAAEAAAQC8EUAOw==")
+        stub_request(:get, "http://avatar.example.com/avatar.png").to_return(body: png, headers: { "Content-Type" => "image/png" })
+      end
+
+      it 'enqueues a download_avatar_from_url job' do
+        authenticator.expects(:fetch_user_details).returns(
+          email: user.email,
+          avatar: 'http://avatar.example.com/avatar.png'
+        )
+        expect {
+          authenticator.after_authenticate(auth)
+        }.to change { job_klass.jobs.count }.by(1)
+
+        job_args = job_klass.jobs.last['args'].first
+
+        expect(job_args['url']).to eq("http://avatar.example.com/avatar.png")
+        expect(job_args['user_id']).to eq(user.id)
+        expect(job_args['override_gravatar']).to eq(false)
+      end
+    end
+  end
+
+  it 'can walk json' do
+    authenticator = OAuth2BasicAuthenticator.new('oauth2_basic')
+    json_string = '{"user":{"id":1234,"email":{"address":"test@example.com"}}}'
+    SiteSetting.oauth2_json_email_path = 'user.email.address'
+    result = authenticator.json_walk({}, JSON.parse(json_string), :email)
+
+    expect(result).to eq "test@example.com"
+  end
+
+  it 'can walk json that contains an array' do
+    authenticator = OAuth2BasicAuthenticator.new('oauth2_basic')
+    json_string = '{"email":"test@example.com","identities":[{"user_id":"123456789","provider":"auth0","isSocial":false}]}'
+    SiteSetting.oauth2_json_user_id_path = 'identities.[].user_id'
+    result = authenticator.json_walk({}, JSON.parse(json_string), :user_id)
+
+    expect(result).to eq "123456789"
+  end
+
+  it 'can walk json and handle an empty array' do
+    authenticator = OAuth2BasicAuthenticator.new('oauth2_basic')
+    json_string = '{"email":"test@example.com","identities":[]}'
+    SiteSetting.oauth2_json_user_id_path = 'identities.[].user_id'
+    result = authenticator.json_walk({}, JSON.parse(json_string), :user_id)
+
+    expect(result).to eq nil
+  end
+
+  it 'can walk json and download avatar' do
+    authenticator = OAuth2BasicAuthenticator.new('oauth2_basic')
+    json_string = '{"user":{"avatar":"http://example.com/1.png"}}'
+    SiteSetting.oauth2_json_avatar_path = 'user.avatar'
+    result = authenticator.json_walk({}, JSON.parse(json_string), :avatar)
+
+    expect(result).to eq 'http://example.com/1.png'
   end
 end
