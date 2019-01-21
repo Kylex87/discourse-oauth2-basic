@@ -126,13 +126,13 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
 	  extGroup = c[nameAttr]
 	elsif
 	  extGroup = c
-	end 
+	end
         if extGroup == org
           grouplist << match
 	end
       end
     end
-    
+
     log("Grouplist: #{grouplist.join(",")}")
     # Get the groups this user is authenticated with from sso
     Group.joins(:users).where(users: { id: user.id } ).each do |c|
@@ -141,13 +141,13 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
       if grouplist.include?(gname)
         grouplist.delete(gname) # remove it from the list
       #delete the user from the list since sso says he isn't in there anymore!
-      else
-	if c.automatic
-	  log("Not removing user from automatic group #{c.name}.")
-	elsif
-	  log("Removing user #{user.id} from group #{c.name}.")
-          c.group_users.where(user_id: user.id).destroy_all
-	end
+#      else
+#	if c.automatic
+#	  log("Not removing user from automatic group #{c.name}.")
+#	elsif
+#	  log("Removing user #{user.id} from group #{c.name}.")
+#          c.group_users.where(user_id: user.id).destroy_all
+#	end
       end
     end
     # add users to group
@@ -189,7 +189,7 @@ class OAuth2BasicAuthenticator < ::Auth::OAuth2Authenticator
       user_id: result.user.id,
       override_gravatar: SiteSetting.sso_overrides_avatar
     ) if result.user && avatar_url.present?
-    
+
     result.extra_data = { oauth2_basic_user_id: user_details[:user_id], groups: user_details[:groups] }
     if not result.user.nil? and not user_details[:groups].nil?
       update_user_groups(result.user, user_details[:groups])
